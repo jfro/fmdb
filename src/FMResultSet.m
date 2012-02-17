@@ -15,6 +15,7 @@
 @implementation FMResultSet
 @synthesize query=_query;
 @synthesize columnNameToIndexMap=_columnNameToIndexMap;
+@synthesize columnNames=_columnNames;
 @synthesize statement=_statement;
 
 + (id)resultSetWithStatement:(FMStatement *)statement usingParentDatabase:(FMDatabase*)aDB {
@@ -40,6 +41,9 @@
     
     FMDBRelease(_columnNameToIndexMap);
     _columnNameToIndexMap = nil;
+	
+	FMDBRelease(_columnNames);
+	_columnNames = nil;
     
 #if ! __has_feature(objc_arc)
     [super dealloc];
@@ -65,15 +69,20 @@
     
     if (!_columnNameToIndexMap) {
         [self setColumnNameToIndexMap:[NSMutableDictionary dictionary]];
-    }    
-    
+    }
+	if (!_columnNames) {
+		[self setColumnNames:[NSMutableArray array]];
+	}
+    [_columnNames removeAllObjects];
     int columnCount = sqlite3_column_count([_statement statement]);
     
     int columnIdx = 0;
     for (columnIdx = 0; columnIdx < columnCount; columnIdx++) {
         [_columnNameToIndexMap setObject:[NSNumber numberWithInt:columnIdx]
                                  forKey:[[NSString stringWithUTF8String:sqlite3_column_name([_statement statement], columnIdx)] lowercaseString]];
+		[_columnNames addObject:[NSString stringWithUTF8String:sqlite3_column_name([_statement statement], columnIdx)]];
     }
+	
     _columnNamesSetup = YES;
 }
 
@@ -171,6 +180,9 @@
         
     } while (retry);
     
+	if (!_columnNamesSetup) {
+		[self setupColumnNames];
+	}
     
     if (rc != SQLITE_ROW) {
         [self close];
@@ -257,7 +269,11 @@
         return nil;
     }
     
-    return [NSString stringWithUTF8String:c];
+	NSString *result = [NSString stringWithUTF8String:c];
+	if(!result) {
+		result = [NSString stringWithCString:c encoding:NSASCIIStringEncoding];
+	}
+    return result;
 }
 
 - (NSString*)stringForColumn:(NSString*)columnName {
@@ -376,5 +392,30 @@
     _parentDB = newDb;
 }
 
+- (int)typeForColumnIndex:(int)columnIndex
+{
+	return sqlite3_column_type([_statement statement], columnIndex);
+}
+
+#pragma mark -
+#pragma mark Column Sources
+
+- (BOOL)fromSingleTable
+{
+	NSMutableSet *sources = [NSMutableSet set];
+	NSUInteger i = 0;
+	sqlite3_stmt *pStmt = [_statement statement];
+	for(i = 0; i < sqlite3_column_count(pStmt); i++)
+	{
+		const char *table_name = sqlite3_column_table_name(pStmt, (int)i);
+		const char *db_name = sqlite3_column_database_name(pStmt, (int)i);
+		if(!table_name || !db_name)
+			return NO;
+		[sources addObject:[NSString stringWithFormat:@"%s.%s", db_name, table_name]];
+	}
+	if([sources count] > 1)
+		return NO;
+	return YES;
+}
 
 @end

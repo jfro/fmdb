@@ -23,10 +23,12 @@
     NSString            *_query;
     NSMutableDictionary *_columnNameToIndexMap;
     BOOL                _columnNamesSetup;
+	NSMutableArray		*_columnNames;
 }
 
 @property (retain) NSString *query;
 @property (retain) NSMutableDictionary *columnNameToIndexMap;
+@property (retain) NSMutableArray *columnNames;
 @property (retain) FMStatement *statement;
 
 + (id)resultSetWithStatement:(FMStatement *)statement usingParentDatabase:(FMDatabase*)aDB;
@@ -87,5 +89,8 @@ If you don't, you're going to be in a world of hurt when you try and use the dat
 
 - (void)kvcMagic:(id)object;
 - (NSDictionary *)resultDict;
+
+- (int)typeForColumnIndex:(int)columnIndex;
+- (BOOL)fromSingleTable;
 
 @end
