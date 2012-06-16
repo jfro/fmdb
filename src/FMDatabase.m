@@ -288,8 +288,15 @@
     return sqlite3_errcode(_db);
 }
 
+
+- (NSError*)errorWithMessage:(NSString*)message {
+    NSDictionary* errorMessage = [NSDictionary dictionaryWithObject:message forKey:NSLocalizedDescriptionKey];
+    
+    return [NSError errorWithDomain:@"FMDatabase" code:sqlite3_errcode(_db) userInfo:errorMessage];    
+}
+
 - (NSError*)lastError {
-    return [NSError errorWithDomain:@"FMDatabase" code:sqlite3_errcode(_db) userInfo:[NSDictionary dictionaryWithObject:[self lastErrorMessage] forKey:NSLocalizedDescriptionKey]];
+   return [self errorWithMessage:[self lastErrorMessage]];
 }
 
 - (sqlite_int64)lastInsertRowId {
@@ -331,7 +338,13 @@
     
     // FIXME - someday check the return codes on these binds.
     else if ([obj isKindOfClass:[NSData class]]) {
-        sqlite3_bind_blob(pStmt, idx, [obj bytes], (int)[obj length], SQLITE_STATIC);
+        const void *bytes = [obj bytes];
+        if (!bytes) {
+            // it's an empty NSData object, aka [NSData data].
+            // Don't pass a NULL pointer, or sqlite will bind a SQL null instead of a blob.
+            bytes = "";
+        }
+        sqlite3_bind_blob(pStmt, idx, bytes, (int)[obj length], SQLITE_STATIC);
     }
     else if ([obj isKindOfClass:[NSDate class]]) {
         sqlite3_bind_double(pStmt, idx, [obj timeIntervalSince1970]);
@@ -349,6 +362,9 @@
         }
         else if (strcmp([obj objCType], @encode(long long)) == 0) {
             sqlite3_bind_int64(pStmt, idx, [obj longLongValue]);
+        }
+        else if (strcmp([obj objCType], @encode(unsigned long long)) == 0) {
+            sqlite3_bind_int64(pStmt, idx, [obj unsignedLongLongValue]);
         }
         else if (strcmp([obj objCType], @encode(float)) == 0) {
             sqlite3_bind_double(pStmt, idx, [obj floatValue]);
@@ -722,7 +738,7 @@
                 sqlite3_finalize(pStmt);
                 
                 if (outErr) {
-                    *outErr = [NSError errorWithDomain:[NSString stringWithUTF8String:sqlite3_errmsg(_db)] code:rc userInfo:nil];
+                    *outErr = [self errorWithMessage:[NSString stringWithUTF8String:sqlite3_errmsg(_db)]];
                 }
                 
                 _isExecutingStatement = NO;

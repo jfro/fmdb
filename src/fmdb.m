@@ -7,11 +7,13 @@
 #define FMDBQuickCheck(SomeBool) { if (!(SomeBool)) { NSLog(@"Failure on line %d", __LINE__); abort(); } }
 
 void testPool(NSString *dbPath);
+void FMDBReportABugFunction();
 
 int main (int argc, const char * argv[]) {
     
 @autoreleasepool {
-        
+    
+    FMDBReportABugFunction();
     
     NSString *dbPath = @"/tmp/tmp.db";
     
@@ -54,6 +56,18 @@ int main (int argc, const char * argv[]) {
     FMDBQuickCheck(err != nil);
     FMDBQuickCheck([err code] == SQLITE_ERROR);
     NSLog(@"err: '%@'", err);
+    
+    
+    
+    // empty strings should still return a value.
+    FMDBQuickCheck(([db boolForQuery:@"SELECT ? not null", @""]));
+    
+    // same with empty bits o' mutable data
+    FMDBQuickCheck(([db boolForQuery:@"SELECT ? not null", [NSMutableData data]]));
+    
+    // same with empty bits o' data
+    FMDBQuickCheck(([db boolForQuery:@"SELECT ? not null", [NSData data]]));
+
     
     // but of course, I don't bother checking the error codes below.
     // Bad programmer, no cookie.
@@ -116,6 +130,48 @@ int main (int argc, const char * argv[]) {
     // it'll also close when it's dealloc'd, but we're closing the database before
     // the autorelease pool closes, so sqlite will complain about it.
     [rs close];  
+    
+    FMDBQuickCheck(![db hasOpenResultSets]);
+    
+    [db executeUpdate:@"create table ull (a integer)"];
+    
+    [db executeUpdate:@"insert into ull (a) values (?)" , [NSNumber numberWithUnsignedLongLong:ULLONG_MAX]];
+    
+    rs = [db executeQuery:@"select  a from ull"];
+    while ([rs next]) {
+        unsigned long long a = [rs unsignedLongLongIntForColumnIndex:0];
+        unsigned long long b = [rs unsignedLongLongIntForColumn:@"a"];
+        
+        FMDBQuickCheck(a == ULLONG_MAX);
+        FMDBQuickCheck(b == ULLONG_MAX);
+    }
+    
+    
+    // check case sensitive result dictionary.
+    [db executeUpdate:@"create table cs (aRowName integer, bRowName text)"];
+    FMDBQuickCheck(![db hadError]);
+    [db executeUpdate:@"insert into cs (aRowName, bRowName) values (?, ?)" , [NSNumber numberWithBool:1], @"hello"];
+    FMDBQuickCheck(![db hadError]);
+    
+    rs = [db executeQuery:@"select * from cs"];
+    while ([rs next]) {
+        NSDictionary *d = [rs resultDictionary];
+        
+        FMDBQuickCheck([d objectForKey:@"aRowName"]);
+        FMDBQuickCheck(![d objectForKey:@"arowname"]);
+        FMDBQuickCheck([d objectForKey:@"bRowName"]);
+        FMDBQuickCheck(![d objectForKey:@"browname"]);
+    }
+    
+    
+    // check funky table names + getTableSchema
+    [db executeUpdate:@"create table '234 fds' (foo text)"];
+    FMDBQuickCheck(![db hadError]);
+    rs = [db getTableSchema:@"234 fds"];
+    FMDBQuickCheck([rs next]);
+    [rs close];
+    
+    
     
     // ----------------------------------------------------------------------------------------
     // blob support.
@@ -303,8 +359,9 @@ int main (int argc, const char * argv[]) {
     }
     
     
-    
-    
+    FMDBQuickCheck([db columnExists:@"a" inTableWithName:@"nulltest"]);
+    FMDBQuickCheck([db columnExists:@"b" inTableWithName:@"nulltest"]);
+    FMDBQuickCheck(![db columnExists:@"c" inTableWithName:@"nulltest"]);
     
     
     // null dates
@@ -411,6 +468,17 @@ int main (int argc, const char * argv[]) {
     
     
     {
+        
+        [db executeUpdate:@"create table utest (a text)"];
+        [db executeUpdate:@"insert into utest values (?)", @"/übertest"];
+        
+        rs = [db executeQuery:@"select * from utest where a = ?", @"/übertest"];
+        FMDBQuickCheck([rs next]);
+        [rs close];
+    }   
+    
+    
+    {
         [db executeUpdate:@"create table testOneHundredTwelvePointTwo (a text, b integer)"];
         [db executeUpdate:@"insert into testOneHundredTwelvePointTwo values (?, ?)" withArgumentsInArray:[NSArray arrayWithObjects:@"one", [NSNumber numberWithInteger:2], nil]];
         [db executeUpdate:@"insert into testOneHundredTwelvePointTwo values (?, ?)" withArgumentsInArray:[NSArray arrayWithObjects:@"one", [NSNumber numberWithInteger:3], nil]];
@@ -490,7 +558,7 @@ int main (int argc, const char * argv[]) {
         FMDBQuickCheck([db executeUpdate:@"create table t5 (a text, b int, c blob, d text, e text)"]);
         FMDBQuickCheck(([db executeUpdateWithFormat:@"insert into t5 values (%s, %d, %@, %c, %lld)", "text", 42, @"BLOB", 'd', 12345678901234]));
         
-        rs = [db executeQueryWithFormat:@"select * from t5 where a = %s", "text"];
+        rs = [db executeQueryWithFormat:@"select * from t5 where a = %s and a = %@ and b = %d", "text", @"text", 42];
         FMDBQuickCheck((rs != nil));
         
         [rs next];
@@ -542,6 +610,26 @@ int main (int argc, const char * argv[]) {
     {
         NSError *err;
         FMDBQuickCheck(([db update:@"insert into t5 values (?, ?, ?, ?, ?)" withErrorAndBindings:&err, @"text", [NSNumber numberWithInt:42], @"BLOB", @"d", [NSNumber numberWithInt:0]]));
+        
+    }
+    
+    
+    // test attach for the heck of it.
+    {
+        
+        //FMDatabase *dbA = [FMDatabase databaseWithPath:dbPath];
+        [fileManager removeItemAtPath:@"/tmp/attachme.db" error:nil];
+        FMDatabase *dbB = [FMDatabase databaseWithPath:@"/tmp/attachme.db"];
+        FMDBQuickCheck([dbB open]);
+        FMDBQuickCheck([dbB executeUpdate:@"create table attached (a text)"]);
+        FMDBQuickCheck(([dbB executeUpdate:@"insert into attached values (?)", @"test"]));
+        FMDBQuickCheck([dbB close]);
+        
+        [db executeUpdate:@"attach database '/tmp/attachme.db' as attack"];
+        
+        rs = [db executeQuery:@"select * from attack.attached"];
+        FMDBQuickCheck([rs next]);
+        [rs close];
         
     }
     
@@ -735,6 +823,8 @@ int main (int argc, const char * argv[]) {
             while ([rs next]) {
                 rowCount++;
             }
+            
+            FMDBQuickCheck(![db hasOpenResultSets]);
             
             NSLog(@"after rollback, rowCount is %d (should be 2)", rowCount);
             
@@ -1097,3 +1187,55 @@ void testPool(NSString *dbPath) {
 #endif
 
 }
+
+
+/*
+ What is this function for?  Think of it as a template which a developer can use
+ to report bugs.
+ 
+ If you have a bug, make it reproduce in this function and then let the
+ developer(s) know either via the github bug reporter or the mailing list.
+ */
+
+void FMDBReportABugFunction() {
+    
+    NSString *dbPath = @"/tmp/bugreportsample.db";
+    
+    // delete the old db if it exists
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    [fileManager removeItemAtPath:dbPath error:nil];
+    
+    FMDatabaseQueue *queue = [FMDatabaseQueue databaseQueueWithPath:dbPath];
+    
+    [queue inDatabase:^(FMDatabase *db) {
+        
+        /*
+         Change the contents of this block to suit your needs.
+         */
+        
+        BOOL worked = [db executeUpdate:@"create table test (a text, b text, c integer, d double, e double)"];
+        FMDBQuickCheck(worked);
+        
+        
+        worked = [db executeUpdate:@"insert into test values ('a', 'b', 1, 2.2, 2.3)"];
+        FMDBQuickCheck(worked);
+        
+        FMResultSet *rs = [db executeQuery:@"select * from test"];
+        FMDBQuickCheck([rs next]);
+        [rs close];
+        
+    }];
+    
+    
+    [queue close];
+    
+    
+    // uncomment the following line if you don't want to run through all the other tests.
+    //exit(0);
+    
+}
+
+
+
+
+
