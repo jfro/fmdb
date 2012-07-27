@@ -100,6 +100,8 @@ If you don't, you're going to be in a world of hurt when you try and use the dat
 - (void)kvcMagic:(id)object;
 
 - (int)typeForColumnIndex:(int)columnIndex;
+
+- (NSString *)columnPathForIndex:(int)columnIdx;
 - (BOOL)fromSingleTable;
 
 @end

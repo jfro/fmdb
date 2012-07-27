@@ -443,6 +443,15 @@
 #pragma mark -
 #pragma mark Column Sources
 
+- (NSString *)columnPathForIndex:(int)columnIdx {
+    sqlite3_stmt *pStmt = [_statement statement];
+    const char *table_name = sqlite3_column_table_name(pStmt, columnIdx);
+    const char *db_name = sqlite3_column_database_name(pStmt, columnIdx);
+    if(!table_name || !db_name)
+        return nil;
+    return [NSString stringWithFormat:@"%s.%s.%@", db_name, table_name, [self columnNameForIndex:columnIdx]];
+}
+
 - (BOOL)fromSingleTable
 {
 	NSMutableSet *sources = [NSMutableSet set];
