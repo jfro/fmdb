@@ -447,15 +447,18 @@
     sqlite3_stmt *pStmt = [_statement statement];
     const char *table_name = sqlite3_column_table_name(pStmt, columnIdx);
     const char *db_name = sqlite3_column_database_name(pStmt, columnIdx);
-    if(!table_name || !db_name)
-        return nil;
-    return [NSString stringWithFormat:@"%s.%s.%@", db_name, table_name, [self columnNameForIndex:columnIdx]];
+    if(table_name && db_name)
+        return [NSString stringWithFormat:@"%s.%s.%i.%@", db_name, table_name, columnIdx, [self columnNameForIndex:columnIdx]];
+	else if(db_name) {
+		return [NSString stringWithFormat:@"%s.%i.%@", db_name, columnIdx, [self columnNameForIndex:columnIdx]];
+	}
+    return [NSString stringWithFormat:@"unknown.%i.%@", columnIdx, [self columnNameForIndex:columnIdx]];
 }
 
 - (BOOL)fromSingleTable
 {
 	NSMutableSet *sources = [NSMutableSet set];
-	NSUInteger i = 0;
+	NSInteger i = 0;
 	sqlite3_stmt *pStmt = [_statement statement];
 	for(i = 0; i < sqlite3_column_count(pStmt); i++)
 	{
