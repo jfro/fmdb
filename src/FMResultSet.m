@@ -448,11 +448,11 @@
     const char *table_name = sqlite3_column_table_name(pStmt, columnIdx);
     const char *db_name = sqlite3_column_database_name(pStmt, columnIdx);
     if(table_name && db_name)
-        return [NSString stringWithFormat:@"%s.%s.%i.%@", db_name, table_name, columnIdx, [self columnNameForIndex:columnIdx]];
+        return [NSString stringWithFormat:@"%s|%s|%i|%@", db_name, table_name, columnIdx, [self columnNameForIndex:columnIdx]];
 	else if(db_name) {
-		return [NSString stringWithFormat:@"%s.%i.%@", db_name, columnIdx, [self columnNameForIndex:columnIdx]];
+		return [NSString stringWithFormat:@"%s|%i|%@", db_name, columnIdx, [self columnNameForIndex:columnIdx]];
 	}
-    return [NSString stringWithFormat:@"unknown.%i.%@", columnIdx, [self columnNameForIndex:columnIdx]];
+    return [NSString stringWithFormat:@"unknown|%i|%@", columnIdx, [self columnNameForIndex:columnIdx]];
 }
 
 - (BOOL)fromSingleTable
