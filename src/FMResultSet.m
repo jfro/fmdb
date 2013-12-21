@@ -7,23 +7,21 @@
 @end
 
 
-@interface FMResultSet (Private)
-- (NSMutableDictionary *)columnNameToIndexMap;
-- (void)setColumnNameToIndexMap:(NSMutableDictionary *)value;
-@end
-
 @implementation FMResultSet
 @synthesize query=_query;
 @synthesize columnNameToIndexMap=_columnNameToIndexMap;
 @synthesize columnNames=_columnNames;
 @synthesize statement=_statement;
 
-+ (id)resultSetWithStatement:(FMStatement *)statement usingParentDatabase:(FMDatabase*)aDB {
++ (instancetype)resultSetWithStatement:(FMStatement *)statement usingParentDatabase:(FMDatabase*)aDB {
     
     FMResultSet *rs = [[FMResultSet alloc] init];
     
     [rs setStatement:statement];
     [rs setParentDB:aDB];
+    
+    NSParameterAssert(![statement inUse]);
+    [statement setInUse:YES]; // weak reference
     
     return FMDBReturnAutoreleased(rs);
 }
@@ -65,25 +63,23 @@
     return sqlite3_column_count([_statement statement]);
 }
 
-- (void)setupColumnNames {
-    
+- (NSMutableDictionary *)columnNameToIndexMap {
     if (!_columnNameToIndexMap) {
-        [self setColumnNameToIndexMap:[NSMutableDictionary dictionary]];
+        if (!_columnNames) {
+            [self setColumnNames:[NSMutableArray array]];
+        }
+        [_columnNames removeAllObjects];
+        int columnCount = sqlite3_column_count([_statement statement]);
+        _columnNameToIndexMap = [[NSMutableDictionary alloc] initWithCapacity:(NSUInteger)columnCount];
+        int columnIdx = 0;
+        for (columnIdx = 0; columnIdx < columnCount; columnIdx++) {
+            [_columnNameToIndexMap setObject:[NSNumber numberWithInt:columnIdx]
+                                      forKey:[[NSString stringWithUTF8String:sqlite3_column_name([_statement statement], columnIdx)] lowercaseString]];
+            [_columnNames addObject:[NSString stringWithUTF8String:sqlite3_column_name([_statement statement], columnIdx)]];
+        }
+        _columnNamesSetup = YES;
     }
-	if (!_columnNames) {
-		[self setColumnNames:[NSMutableArray array]];
-	}
-    [_columnNames removeAllObjects];
-    int columnCount = sqlite3_column_count([_statement statement]);
-    
-    int columnIdx = 0;
-    for (columnIdx = 0; columnIdx < columnCount; columnIdx++) {
-        [_columnNameToIndexMap setObject:[NSNumber numberWithInt:columnIdx]
-                                 forKey:[[NSString stringWithUTF8String:sqlite3_column_name([_statement statement], columnIdx)] lowercaseString]];
-		[_columnNames addObject:[NSString stringWithUTF8String:sqlite3_column_name([_statement statement], columnIdx)]];
-    }
-	
-    _columnNamesSetup = YES;
+    return _columnNameToIndexMap;
 }
 
 - (void)kvcMagic:(id)object {
@@ -109,16 +105,12 @@
 
 - (NSDictionary*)resultDict {
     
-    int num_cols = sqlite3_data_count([_statement statement]);
+    NSUInteger num_cols = (NSUInteger)sqlite3_data_count([_statement statement]);
     
     if (num_cols > 0) {
         NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithCapacity:(NSUInteger)num_cols];
         
-        if (!_columnNamesSetup) {
-            [self setupColumnNames];
-        }
-        
-        NSEnumerator *columnNames = [_columnNameToIndexMap keyEnumerator];
+        NSEnumerator *columnNames = [[self columnNameToIndexMap] keyEnumerator];
         NSString *columnName = nil;
         while ((columnName = [columnNames nextObject])) {
             id objectValue = [self objectForColumnName:columnName];
@@ -138,7 +130,7 @@
 
 - (NSDictionary*)resultDictionary {
     
-    int num_cols = sqlite3_data_count([_statement statement]);
+    NSUInteger num_cols = (NSUInteger)sqlite3_data_count([_statement statement]);
     
     if (num_cols > 0) {
         NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithCapacity:(NSUInteger)num_cols];
@@ -165,58 +157,31 @@
 
 
 
-
 - (BOOL)next {
     
-    int rc;
-    BOOL retry;
-    int numberOfRetries = 0;
-    do {
-        retry = NO;
-        
-        rc = sqlite3_step([_statement statement]);
-        
-        if (SQLITE_BUSY == rc || SQLITE_LOCKED == rc) {
-            // this will happen if the db is locked, like if we are doing an update or insert.
-            // in that case, retry the step... and maybe wait just 10 milliseconds.
-            retry = YES;
-            if (SQLITE_LOCKED == rc) {
-                rc = sqlite3_reset([_statement statement]);
-                if (rc != SQLITE_LOCKED) {
-                    NSLog(@"Unexpected result from sqlite3_reset (%d) rs", rc);
-                }
-            }
-            usleep(20);
-            
-            if ([_parentDB busyRetryTimeout] && (numberOfRetries++ > [_parentDB busyRetryTimeout])) {
-                
-                NSLog(@"%s:%d Database busy (%@)", __FUNCTION__, __LINE__, [_parentDB databasePath]);
-                NSLog(@"Database busy");
-                break;
-            }
-        }
-        else if (SQLITE_DONE == rc || SQLITE_ROW == rc) {
-            // all is well, let's return.
-        }
-        else if (SQLITE_ERROR == rc) {
-            NSLog(@"Error calling sqlite3_step (%d: %s) rs", rc, sqlite3_errmsg([_parentDB sqliteHandle]));
-            break;
-        } 
-        else if (SQLITE_MISUSE == rc) {
-            // uh oh.
-            NSLog(@"Error calling sqlite3_step (%d: %s) rs", rc, sqlite3_errmsg([_parentDB sqliteHandle]));
-            break;
-        }
-        else {
-            // wtf?
-            NSLog(@"Unknown error calling sqlite3_step (%d: %s) rs", rc, sqlite3_errmsg([_parentDB sqliteHandle]));
-            break;
-        }
-        
-    } while (retry);
+    int rc = sqlite3_step([_statement statement]);
+    
+    if (SQLITE_BUSY == rc || SQLITE_LOCKED == rc) {
+        NSLog(@"%s:%d Database busy (%@)", __FUNCTION__, __LINE__, [_parentDB databasePath]);
+        NSLog(@"Database busy");
+    }
+    else if (SQLITE_DONE == rc || SQLITE_ROW == rc) {
+        // all is well, let's return.
+    }
+    else if (SQLITE_ERROR == rc) {
+        NSLog(@"Error calling sqlite3_step (%d: %s) rs", rc, sqlite3_errmsg([_parentDB sqliteHandle]));
+    }
+    else if (SQLITE_MISUSE == rc) {
+        // uh oh.
+        NSLog(@"Error calling sqlite3_step (%d: %s) rs", rc, sqlite3_errmsg([_parentDB sqliteHandle]));
+    }
+    else {
+        // wtf?
+        NSLog(@"Unknown error calling sqlite3_step (%d: %s) rs", rc, sqlite3_errmsg([_parentDB sqliteHandle]));
+    }
     
 	if (!_columnNamesSetup) {
-		[self setupColumnNames];
+		[self columnNameToIndexMap]; // ehh....
 	}
     
     if (rc != SQLITE_ROW) {
@@ -231,14 +196,9 @@
 }
 
 - (int)columnIndexForName:(NSString*)columnName {
-    
-    if (!_columnNamesSetup) {
-        [self setupColumnNames];
-    }
-    
     columnName = [columnName lowercaseString];
     
-    NSNumber *n = [_columnNameToIndexMap objectForKey:columnName];
+    NSNumber *n = [[self columnNameToIndexMap] objectForKey:columnName];
     
     if (n) {
         return [n intValue];
@@ -333,7 +293,7 @@
         return nil;
     }
     
-    return [NSDate dateWithTimeIntervalSince1970:[self doubleForColumnIndex:columnIdx]];
+	return [_parentDB hasDateFormatter] ? [_parentDB dateFromString:[self stringForColumnIndex:columnIdx]] : [NSDate dateWithTimeIntervalSince1970:[self doubleForColumnIndex:columnIdx]];
 }
 
 
@@ -471,6 +431,14 @@
 	if([sources count] > 1)
 		return NO;
 	return YES;
+}
+
+- (id)objectAtIndexedSubscript:(int)columnIdx {
+    return [self objectForColumnIndex:columnIdx];
+}
+
+- (id)objectForKeyedSubscript:(NSString *)columnName {
+    return [self objectForColumnName:columnName];
 }
 
 @end
