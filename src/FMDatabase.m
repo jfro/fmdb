@@ -364,7 +364,7 @@
             sqlite3_bind_int64(pStmt, idx, [obj longLongValue]);
         }
         else if (strcmp([obj objCType], @encode(unsigned long long)) == 0) {
-            sqlite3_bind_int64(pStmt, idx, [obj unsignedLongLongValue]);
+            sqlite3_bind_int64(pStmt, idx, (int64_t)[obj unsignedLongLongValue]);
         }
         else if (strcmp([obj objCType], @encode(float)) == 0) {
             sqlite3_bind_double(pStmt, idx, [obj floatValue]);
@@ -598,7 +598,7 @@
         while (idx < queryCount) {
             
             if (arrayArgs) {
-                obj = [arrayArgs objectAtIndex:idx];
+                obj = [arrayArgs objectAtIndex:(NSUInteger)idx];
             }
             else {
                 obj = va_arg(args, id);
@@ -782,7 +782,7 @@
         while (idx < queryCount) {
             
             if (arrayArgs) {
-                obj = [arrayArgs objectAtIndex:idx];
+                obj = [arrayArgs objectAtIndex:(NSUInteger)idx];
             }
             else {
                 obj = va_arg(args, id);

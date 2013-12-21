@@ -112,7 +112,7 @@
     int num_cols = sqlite3_data_count([_statement statement]);
     
     if (num_cols > 0) {
-        NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithCapacity:num_cols];
+        NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithCapacity:(NSUInteger)num_cols];
         
         if (!_columnNamesSetup) {
             [self setupColumnNames];
@@ -141,7 +141,7 @@
     int num_cols = sqlite3_data_count([_statement statement]);
     
     if (num_cols > 0) {
-        NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithCapacity:num_cols];
+        NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithCapacity:(NSUInteger)num_cols];
         
         int columnCount = sqlite3_column_count([_statement statement]);
         
@@ -349,7 +349,7 @@
     
     int dataSize = sqlite3_column_bytes([_statement statement], columnIdx);
     
-    NSMutableData *data = [NSMutableData dataWithLength:dataSize];
+    NSMutableData *data = [NSMutableData dataWithLength:(NSUInteger)dataSize];
     
     memcpy([data mutableBytes], sqlite3_column_blob([_statement statement], columnIdx), dataSize);
     
@@ -369,7 +369,7 @@
     
     int dataSize = sqlite3_column_bytes([_statement statement], columnIdx);
     
-    NSData *data = [NSData dataWithBytesNoCopy:(void *)sqlite3_column_blob([_statement statement], columnIdx) length:dataSize freeWhenDone:NO];
+    NSData *data = [NSData dataWithBytesNoCopy:(void *)sqlite3_column_blob([_statement statement], columnIdx) length:(NSUInteger)dataSize freeWhenDone:NO];
     
     return data;
 }
